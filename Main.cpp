@@ -10,20 +10,27 @@
 #include "ExecSystem.h"
 #include "ErrorCode.h"
 #include "DummyJobs.h"
+#include "Perf.h"
 using namespace std;
 
 ExecSystem gExecSystem;
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	for(int i = 0 ; i < 10 ; ++i)
-	{
-		Job* j = new Job(Foo1);
-		gExecSystem.AddJob(j); //clear these job allocations!
-	}
-	int x;
-	cin >> x; //wait for all threads to finish
-	return 0;
+	//for(int i = 0 ; i < 10 ; ++i)
+	//{
+	//	Job* j = new Job(Foo1);
+	//	gExecSystem.AddJob(j); //clear these job allocations!
+	//}
+	//int x;
+	//cin >> x; //wait for all threads to finish
+	//return 0;
+
+	uint max;
+	cout << "Enter the max number of threads" << endl;	
+	cin >> max;
+	cout << "Thread creation times : " << MeasureThreadCreationCost(max, 10, 1000) << endl;
+
 }
 
-//Next step : Spawn a set of computations and run one each on each thread
+//Next step : Have a way of sending parameters to the jobs in a type safe way
