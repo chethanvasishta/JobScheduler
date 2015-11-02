@@ -6,20 +6,18 @@
 using namespace std;
 
 // ------------------ Thread Creation Cost -----------------------
-
-HANDLE gWaitEvent;
 LARGE_INTEGER *gTimerArray;
 int gNumThreads = 1000;
 
 DWORD WINAPI CreateThreadExec(LPVOID params)
 {	
 	int *j = (int*)(params);
-	assert(*j >= 0 && *j<gNumThreads);	
-	QueryPerformanceCounter(&gTimerArray[*j]);
+	assert(*j >= 0 && *j < gNumThreads);
+	if(QueryPerformanceCounter(&gTimerArray[*j]) == 0)
+		cout << "Error querying time" << endl;
 	return 0;
 }
 
-//Is this the only way to get 
 LARGE_INTEGER Max_LargeInteger(LARGE_INTEGER* timerArray, uint n)
 {
 	LARGE_INTEGER max = timerArray[0];
@@ -32,17 +30,17 @@ LARGE_INTEGER Max_LargeInteger(LARGE_INTEGER* timerArray, uint n)
 }
 
 double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, const uint numIterations)
-{	
-	const uint numSteps = maxThreads/stepSize;	
+{
+	const uint numSteps = maxThreads/stepSize;
 	double *threadCreationTimes = new double[numSteps];
+	HANDLE *threadArray = new HANDLE[maxThreads];
+	gTimerArray = new LARGE_INTEGER[maxThreads];
 
 	//Create stepSize, 2*stepSize, ... upto maxThreads and measure the time
 	for(uint numThreads = stepSize, iterCount = 0 ; numThreads <= maxThreads; numThreads += stepSize, ++iterCount)
 	{
 		gNumThreads = numThreads;
-		HANDLE *threadArray = new HANDLE[numThreads];
 		
-		gTimerArray = new LARGE_INTEGER[numThreads];
 
 		//Time measurement taken from stack overflow : http://stackoverflow.com/questions/14337278/precise-time-measurement
 		LARGE_INTEGER frequency;        // ticks per second
@@ -51,12 +49,12 @@ double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, con
 
 		// get ticks per second
 		QueryPerformanceFrequency(&frequency);
-
+		
+		// start timer
+		QueryPerformanceCounter(&t1);
+		
 		for(uint i = 0 ; i < numIterations; ++i)
 		{
-			// start timer
-			QueryPerformanceCounter(&t1);
-		
 			for(uint j = 0 ; j < numThreads ; ++j)
 			{
 				int k = j; // Need to send a copy of j as CreateThread() is asynchronous and j would have changed by the time thread is created
@@ -65,23 +63,19 @@ double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, con
 					0,		// Default stack size
 					CreateThreadExec,
 					(void*)(&k),	// Parameters to function
-					0,		// Default creation flags		
+					0,		// Default creation flags
 					NULL	// Address of variable to store the thread identifier
 				);
 
 				assert(threadArray[j] != NULL);
-			}		
+			}
 
 			//Wait for all threads to be created and executed
 			WaitForMultipleObjects(numThreads, threadArray, true, INFINITE);
-
-			// Get the timer values of the threads
-			t2 = Max_LargeInteger(gTimerArray, numThreads);
-			
-			// compute and print the elapsed time in millisec
-			elapsedTime += (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
-
 		}
+
+		QueryPerformanceCounter(&t2);
+		elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
 
 		elapsedTime = elapsedTime / numIterations;
 
@@ -91,15 +85,14 @@ double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, con
 
 		// delete the threads and threadArray
 		for(uint j = 0 ; j < numThreads ; ++j)
-			CloseHandle(threadArray[j]);		
-
-		delete[] threadArray;
-		delete[] gTimerArray;
+			CloseHandle(threadArray[j]);
 	}
 
 	//Measure the slope of threadCreationTimes	
 	double time = threadCreationTimes[0];
 	delete[] threadCreationTimes;
+	delete[] threadArray;
+	delete[] gTimerArray;
 	return time;
 }
 
@@ -195,7 +188,7 @@ double MeasureThreadContextSwitchCost(const uint maxThreads, const uint nContext
 
 		elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
 		threadContextSwitchTimes[numThreads - 2] = elapsedTime;
-		cout << "Cost of switching " << numContextSwitches << " times on " << numThreads << " threads : " << elapsedTime << " ms\t, Per context switch cost = " << elapsedTime/numThreads/numContextSwitches << endl;
+		cout << "Cost of switching " << numContextSwitches << " times on " << numThreads << " threads : " << elapsedTime << " ms,\t Per context switch cost = " << elapsedTime/numThreads/numContextSwitches << endl;
 
 		// clean up the handles and the array
 		for(uint i = 0 ; i < numThreads ; ++i)
