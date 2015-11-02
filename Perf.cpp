@@ -3,18 +3,19 @@
 #include <Windows.h>
 #include <iostream>
 #include <assert.h>
+using namespace std;
+
+// ------------------ Thread Creation Cost -----------------------
 
 HANDLE gWaitEvent;
 LARGE_INTEGER *gTimerArray;
 int gNumThreads = 1000;
 
-DWORD WINAPI DummyThreadExec(LPVOID params)
+DWORD WINAPI CreateThreadExec(LPVOID params)
 {	
 	int *j = (int*)(params);
-	assert(*j >= 0 && *j<gNumThreads);
-	// assert (gNumThreads == 1000);
+	assert(*j >= 0 && *j<gNumThreads);	
 	QueryPerformanceCounter(&gTimerArray[*j]);
-	//WaitForSingleObject(gWaitEvent, INFINITE);
 	return 0;
 }
 
@@ -58,11 +59,11 @@ double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, con
 		
 			for(uint j = 0 ; j < numThreads ; ++j)
 			{
-				int k = j;
+				int k = j; // Need to send a copy of j as CreateThread() is asynchronous and j would have changed by the time thread is created
 				threadArray[j] = CreateThread(
 					NULL,	// Default security attributes
 					0,		// Default stack size
-					DummyThreadExec,
+					CreateThreadExec,
 					(void*)(&k),	// Parameters to function
 					0,		// Default creation flags		
 					NULL	// Address of variable to store the thread identifier
@@ -100,4 +101,116 @@ double MeasureThreadCreationCost(const uint maxThreads, const uint stepSize, con
 	double time = threadCreationTimes[0];
 	delete[] threadCreationTimes;
 	return time;
+}
+
+// ------------------ Context Switch Cost -----------------------
+
+HANDLE* gWakeUpEventArray;
+HANDLE* gThreadCreatedEventArray;
+HANDLE gThreadStartEvent;
+uint numContextSwitches = -1;
+
+DWORD WINAPI ContextSwitchExec(LPVOID params)
+{
+	int threadID = *((int*)params);
+	uint nextThreadID = (threadID + 1) % gNumThreads;
+
+	assert(threadID >= 0 && threadID < gNumThreads);
+	assert(nextThreadID >= 0 && nextThreadID < gNumThreads);
+
+	SetEvent(gThreadCreatedEventArray[threadID]);
+
+	int i = numContextSwitches;
+	while(i >= 0)
+	{
+		WaitForSingleObject(gWakeUpEventArray[threadID], INFINITE);
+		//cout << "In thread " << threadID << endl;
+		SetEvent(gWakeUpEventArray[nextThreadID]);
+		--i;
+	}
+	
+	return 0;
+}
+
+double MeasureThreadContextSwitchCost(const uint maxThreads, const uint nContextSwitches)
+{
+	// create 1 to maxThreads threads, and similar number of events. Each thread gets an ID to wake up. Each thread also waits on its own event
+	double elapsedTime = 0;
+	double *threadContextSwitchTimes = new double[maxThreads - 1]; // we start from 2
+
+	for(uint numThreads = 2 ; numThreads <= maxThreads ; ++numThreads) //minimum of two threads to do a context switch	
+	{
+		numContextSwitches = nContextSwitches;
+		gNumThreads = numThreads;
+		gWakeUpEventArray = new HANDLE[numThreads];
+		gThreadCreatedEventArray = new HANDLE[numThreads];
+		HANDLE* threadArray = new HANDLE[numThreads];
+		for(uint i = 0 ; i < numThreads ; ++i)
+		{
+			gWakeUpEventArray[i] = CreateEvent(
+						NULL,	// Default security attributes
+						FALSE,	// Auto manual reset event
+						FALSE,	// Initially reset
+						NULL // Object name
+						);
+
+			gThreadCreatedEventArray[i] = CreateEvent(
+						NULL,	// Default security attributes
+						FALSE,	// Auto manual reset event
+						FALSE,	// Initially reset
+						NULL // Object name
+						);
+
+			uint threadID = i;			
+			threadArray[i] = CreateThread(
+					NULL,	// Default security attributes
+					0,		// Default stack size
+					ContextSwitchExec,
+					(void*)(&threadID),	// Parameters to function
+					0,		// Default creation flags		
+					NULL	// Address of variable to store the thread identifier
+				);
+			Sleep(100);
+		}
+
+		LARGE_INTEGER frequency;        // ticks per second
+		LARGE_INTEGER t1, t2;           // ticks
+
+		// get ticks per second
+		QueryPerformanceFrequency(&frequency);
+
+		//Wait for all the threads to be created
+		WaitForMultipleObjects(numThreads, gThreadCreatedEventArray, true, INFINITE);
+
+		// start timer
+		QueryPerformanceCounter(&t1);
+
+		SetEvent(gWakeUpEventArray[0]); //trigger the first thread
+
+		//Wait for all threads to be created and executed
+		WaitForMultipleObjects(numThreads, threadArray, true, INFINITE);
+
+		// end timer
+		QueryPerformanceCounter(&t2);
+
+		elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+		threadContextSwitchTimes[numThreads - 2] = elapsedTime;
+		cout << "Cost of switching " << numContextSwitches << " times on " << numThreads << " threads : " << elapsedTime << " ms\t, Per context switch cost = " << elapsedTime/numThreads/numContextSwitches << endl;
+
+		// clean up the handles and the array
+		for(uint i = 0 ; i < numThreads ; ++i)
+		{
+			CloseHandle(gWakeUpEventArray);
+			CloseHandle(gThreadCreatedEventArray);
+			CloseHandle(threadArray);
+		}
+
+		delete[] threadArray;
+		delete[] gWakeUpEventArray;
+		delete[] gThreadCreatedEventArray;
+	}
+
+	elapsedTime = threadContextSwitchTimes[0]/2 /*numThreads*/ /numContextSwitches;
+	delete[] threadContextSwitchTimes;
+	return elapsedTime;
 }

@@ -29,7 +29,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	uint max;
 	cout << "Enter the max number of threads" << endl;	
 	cin >> max;
-	cout << "Thread creation times : " << MeasureThreadCreationCost(max, 10, 1000) << endl;
+	//cout << "Thread creation times : " << MeasureThreadCreationCost(max, 10, 1000) << endl;
+	cout << "Thread context switch times : " << MeasureThreadContextSwitchCost(max, 50000) << endl;
 
 }
 
