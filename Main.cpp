@@ -26,12 +26,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	//cin >> x; //wait for all threads to finish
 	//return 0;
 
-	uint max;
-	cout << "Enter the max number of threads" << endl;	
-	cin >> max;
-	//cout << "Thread creation times : " << MeasureThreadCreationCost(max, 10, 1000) << endl;
-	cout << "Thread context switch times : " << MeasureThreadContextSwitchCost(max, 50000) << endl;
-
+	DoPerformanceAnalysis();
+	return 0;
 }
 
 //Next step : Have a way of sending parameters to the jobs in a type safe way

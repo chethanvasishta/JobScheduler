@@ -207,3 +207,146 @@ double MeasureThreadContextSwitchCost(const uint maxThreads, const uint nContext
 	delete[] threadContextSwitchTimes;
 	return elapsedTime;
 }
+
+// --------------- Atomics --------------------
+
+volatile uint globalInteger = 0;
+uint numIncrements = 10000000;
+HANDLE gStartEvent;
+
+DWORD WINAPI NonAtomicIncrement(LPVOID params)
+{
+	uint threadID = *((uint*)(params));
+	SetEvent(gThreadCreatedEventArray[threadID]);
+	WaitForSingleObject(gStartEvent, INFINITE);
+
+	for (uint j = 0 ; j < numIncrements ; ++j)
+	{
+		++globalInteger;
+	}
+	return 0;
+}
+
+DWORD WINAPI AtomicIncrement(LPVOID params)
+{
+	uint threadID = *((uint*)(params));
+	SetEvent(gThreadCreatedEventArray[threadID]);
+	WaitForSingleObject(gStartEvent, INFINITE);
+
+	for (uint j = 0 ; j < numIncrements ; ++j)
+	{
+		InterlockedIncrement(&globalInteger);
+	}
+	return 0;
+}
+
+
+void ComputeCost(LPTHREAD_START_ROUTINE threadExec, uint maxThreads, char* incType)
+{
+	gStartEvent = CreateEvent(
+			NULL,	// Default security attributes
+			TRUE,	// Manual reset event
+			FALSE,	// Initially reset
+			NULL // Object name
+			);
+
+	for (uint numThreads = 1; numThreads <= maxThreads ; ++numThreads)
+	{
+		// compute increments on a single location in 1 to maxThreads
+		LARGE_INTEGER frequency;        // ticks per second
+		LARGE_INTEGER t1, t2;           // ticks
+
+		// get ticks per second
+		QueryPerformanceFrequency(&frequency);	
+	
+		HANDLE* threadArray = new HANDLE[numThreads];
+		gThreadCreatedEventArray = new HANDLE[numThreads];
+		for(uint i = 0 ; i < numThreads ; ++i)
+		{
+
+			gThreadCreatedEventArray[i] = CreateEvent(
+						NULL,	// Default security attributes
+						FALSE,	// Auto reset event
+						FALSE,	// Initially reset
+						NULL // Object name
+						);
+
+			uint threadID = i;
+			threadArray[i] = CreateThread(
+					NULL,	// Default security attributes
+					0,		// Default stack size
+					threadExec,
+					(void*)(&threadID),	// Parameters to function
+					0,		// Default creation flags		
+					NULL	// Address of variable to store the thread identifier
+				);
+			Sleep(100);
+		}
+
+
+		//Wait for all the threads to be created
+		WaitForMultipleObjects(numThreads, gThreadCreatedEventArray, true, INFINITE);
+
+		// start timer
+		QueryPerformanceCounter(&t1);
+
+		SetEvent(gStartEvent); //trigger the first thread
+
+		//Wait for all threads to be created and executed
+		WaitForMultipleObjects(numThreads, threadArray, true, INFINITE);
+
+		QueryPerformanceCounter(&t2);
+
+		ResetEvent(gStartEvent);
+
+		double elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+		
+		cout << "Cost of " << incType << numIncrements << " increments on " << numThreads << " threads :\t" << elapsedTime << " ms." << endl;
+		
+		delete[] threadArray;
+		delete[] gThreadCreatedEventArray;
+	}
+}
+
+void MeasureCostOfAtomicInstructions(const uint maxThreads, const uint iterations)
+{
+	ComputeCost(NonAtomicIncrement, maxThreads, " non-atomic ");
+	ComputeCost(AtomicIncrement, maxThreads, " atomic ");	
+}
+
+// --------- Main ----------------
+
+void DoPerformanceAnalysis()
+{
+	cout << "------------- Performance Analysis -------------- " << endl;
+
+	uint choice;
+	cout << "1. Thread Creation Cost" << endl << "2. Thread Context Switch Cost" << endl << "3. Cost of Atomics" << endl;
+	cin >> choice;
+
+	uint maxThreads;
+	switch(choice)
+	{
+	case 1:
+		cout << "Enter " << endl;
+		cout << "Enter max number of threads (default: 100)" << endl;
+		cin >> maxThreads;
+		MeasureThreadCreationCost(maxThreads, 10, 1000);
+		break;
+	case 2:
+		cout << "Enter max number of threads (default: 2)" << endl;
+		cin >> maxThreads;
+		MeasureThreadContextSwitchCost(maxThreads, 50000);
+		break;
+	case 3:
+		cout << "Enter max number of threads (default: 2)" << endl;
+		cin >> maxThreads;
+		MeasureCostOfAtomicInstructions(maxThreads);
+		break;
+	default:
+		cout << "Invalid input!" << endl;
+		break;
+	}
+	cout << "Done! Press any key to exit!" << endl;
+	cin >> maxThreads;
+}
