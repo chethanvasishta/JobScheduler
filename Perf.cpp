@@ -240,6 +240,21 @@ DWORD WINAPI AtomicIncrement(LPVOID params)
 	return 0;
 }
 
+CRITICAL_SECTION incrementCriticalSection;
+DWORD WINAPI CriticalSectionIncrement(LPVOID params)
+{
+	uint threadID = *((uint*)(params));
+	SetEvent(gThreadCreatedEventArray[threadID]);
+	WaitForSingleObject(gStartEvent, INFINITE);
+
+	for (uint j = 0 ; j < numIncrements ; ++j)
+	{
+		EnterCriticalSection(&incrementCriticalSection);
+		++globalInteger;
+		LeaveCriticalSection(&incrementCriticalSection);
+	}
+	return 0;
+}
 
 void ComputeCost(LPTHREAD_START_ROUTINE threadExec, uint maxThreads, char* incType)
 {
@@ -280,6 +295,7 @@ void ComputeCost(LPTHREAD_START_ROUTINE threadExec, uint maxThreads, char* incTy
 					0,		// Default creation flags		
 					NULL	// Address of variable to store the thread identifier
 				);
+			//SetThreadAffinityMask(threadArray[i], i);
 			Sleep(100);
 		}
 
@@ -314,6 +330,13 @@ void MeasureCostOfAtomicInstructions(const uint maxThreads, const uint iteration
 	ComputeCost(AtomicIncrement, maxThreads, " atomic ");	
 }
 
+void MeasureCostOfCriticalSection(const uint maxThreads)
+{
+	InitializeCriticalSection(&incrementCriticalSection);
+	ComputeCost(CriticalSectionIncrement, maxThreads, " critical-section ");
+	DeleteCriticalSection(&incrementCriticalSection);
+}
+
 // --------- Main ----------------
 
 void DoPerformanceAnalysis()
@@ -322,6 +345,7 @@ void DoPerformanceAnalysis()
 
 	uint choice;
 	cout << "1. Thread Creation Cost" << endl << "2. Thread Context Switch Cost" << endl << "3. Cost of Atomics" << endl;
+	cout << "4. Cost of Critical Section" << endl;
 	cin >> choice;
 
 	uint maxThreads;
@@ -342,6 +366,11 @@ void DoPerformanceAnalysis()
 		cout << "Enter max number of threads (default: 2)" << endl;
 		cin >> maxThreads;
 		MeasureCostOfAtomicInstructions(maxThreads);
+		break;
+	case 4:
+		cout << "Enter max number of threads (default: 2)" << endl;
+		cin >> maxThreads;
+		MeasureCostOfCriticalSection(maxThreads);
 		break;
 	default:
 		cout << "Invalid input!" << endl;
