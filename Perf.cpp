@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <iostream>
 #include <assert.h>
+#include <mutex>
 using namespace std;
 
 // ------------------ Thread Creation Cost -----------------------
@@ -256,6 +257,22 @@ DWORD WINAPI CriticalSectionIncrement(LPVOID params)
 	return 0;
 }
 
+std::mutex stdMutex;
+DWORD WINAPI StlMutexIncrement(LPVOID params)
+{
+	uint threadID = *((uint*)(params));
+	SetEvent(gThreadCreatedEventArray[threadID]);
+	WaitForSingleObject(gStartEvent, INFINITE);
+
+	for (uint j = 0 ; j < numIncrements ; ++j)
+	{
+		stdMutex.lock();
+		++globalInteger;
+		stdMutex.unlock();		
+	}
+	return 0;
+}
+
 void ComputeCost(LPTHREAD_START_ROUTINE threadExec, uint maxThreads, char* incType)
 {
 	gStartEvent = CreateEvent(
@@ -337,6 +354,11 @@ void MeasureCostOfCriticalSection(const uint maxThreads)
 	DeleteCriticalSection(&incrementCriticalSection);
 }
 
+void MeasureCostOfStlMutex(const uint maxThreads)
+{	
+	ComputeCost(StlMutexIncrement, maxThreads, " stl-mutex ");	
+}
+
 // --------- Main ----------------
 
 void DoPerformanceAnalysis()
@@ -345,7 +367,7 @@ void DoPerformanceAnalysis()
 
 	uint choice;
 	cout << "1. Thread Creation Cost" << endl << "2. Thread Context Switch Cost" << endl << "3. Cost of Atomics" << endl;
-	cout << "4. Cost of Critical Section" << endl;
+	cout << "4. Cost of Critical Section" << endl << "5. Cost of std::mutex" << endl;
 	cin >> choice;
 
 	uint maxThreads;
@@ -371,6 +393,11 @@ void DoPerformanceAnalysis()
 		cout << "Enter max number of threads (default: 2)" << endl;
 		cin >> maxThreads;
 		MeasureCostOfCriticalSection(maxThreads);
+		break;
+	case 5:
+		cout << "Enter max number of threads (default: 2)" << endl;
+		cin >> maxThreads;
+		MeasureCostOfStlMutex(maxThreads);
 		break;
 	default:
 		cout << "Invalid input!" << endl;
